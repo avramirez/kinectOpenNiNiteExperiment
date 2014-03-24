@@ -7,6 +7,7 @@
 
 #ifndef _NITE_USER_VIEWER_H_
 #define _NITE_USER_VIEWER_H_
+#define _USE_MATH_DEFINES
 
 #include "NiTE.h"
 

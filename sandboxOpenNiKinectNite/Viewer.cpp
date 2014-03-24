@@ -11,6 +11,12 @@
 #include <inttypes.h>
 #endif
 
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+#include <sstream>
+#include <string>
+
 #include "Viewer.h"
 
 #if (ONI_PLATFORM == ONI_PLATFORM_MACOSX)
@@ -21,9 +27,9 @@
 
 #include "NiteSampleUtilities.h"
 
-#define GL_WIN_SIZE_X	1280
-#define GL_WIN_SIZE_Y	1024
-#define TEXTURE_SIZE	512
+#define GL_WIN_SIZE_X	1280/2
+#define GL_WIN_SIZE_Y	1024/2
+#define TEXTURE_SIZE	512/2
 
 #define DEFAULT_DISPLAY_MODE	DISPLAY_MODE_DEPTH
 
@@ -44,6 +50,10 @@ int g_nXRes = 0, g_nYRes = 0;
 
 // time to hold in pose to exit program. In milliseconds.
 const int g_poseTimeoutToExit = 2000;
+
+nite::Point3f savedPosition = *new nite::Point3f;
+
+clock_t startTime;
 
 void SampleViewer::glutIdle()
 {
@@ -83,7 +93,7 @@ void SampleViewer::Finalize()
 openni::Status SampleViewer::Init(int argc, char **argv)
 {
 	m_pTexMap = NULL;
-
+    startTime = 0;
 	openni::Status rc = openni::OpenNI::initialize();
 	if (rc != openni::STATUS_OK)
 	{
@@ -254,7 +264,20 @@ void DrawBoundingBox(const nite::UserData& user)
 
 }
 
-
+double poseCheckout(){
+    if(startTime > 0){
+        clock_t clockTicksTaken = clock() - startTime;
+        double currentTime = clockTicksTaken / (double) CLOCKS_PER_SEC;
+        if(currentTime > 10){
+            startTime = 0;
+            return 0;
+        }else{
+            return currentTime;
+        }
+    }else{
+        return 0;
+    }
+}
 
 void DrawLimb(nite::UserTracker* pUserTracker, const nite::SkeletonJoint& joint1, const nite::SkeletonJoint& joint2, int color)
 {
@@ -339,6 +362,9 @@ void SampleViewer::Display()
 {
 	nite::UserTrackerFrameRef userTrackerFrame;
 	openni::VideoFrameRef depthFrame;
+
+   
+    
 	nite::Status rc = m_pUserTracker->readFrame(&userTrackerFrame);
 	if (rc != nite::STATUS_OK)
 	{
@@ -347,7 +373,8 @@ void SampleViewer::Display()
 	}
 
 	depthFrame = userTrackerFrame.getDepthFrame();
-
+    
+    
 	if (m_pTexMap == NULL)
 	{
 		// Texture map init
@@ -438,10 +465,10 @@ void SampleViewer::Display()
 
 	// Display the OpenGL texture map
 	glColor4f(1,1,1,1);
-
+//    glScalef(0.5, 1, 1);
 	glEnable(GL_TEXTURE_2D);
 	glBegin(GL_QUADS);
-
+    
 	g_nXRes = depthFrame.getVideoMode().getResolutionX();
 	g_nYRes = depthFrame.getVideoMode().getResolutionY();
 
@@ -459,6 +486,7 @@ void SampleViewer::Display()
 	glVertex2f(0, GL_WIN_SIZE_Y);
 
 	glEnd();
+    
 	glDisable(GL_TEXTURE_2D);
 
 	const nite::Array<nite::UserData>& users = userTrackerFrame.getUsers();
@@ -496,10 +524,59 @@ void SampleViewer::Display()
 		if (m_poseUser == 0 || m_poseUser == user.getId())
 		{
             
-            nite::Skeleton skeleton;
-            nite::Point3f a = skeleton.getJoint(nite::JOINT_RIGHT_HAND).getPosition();
-            printf("X %f Y %f Z %f",a.x,a.y,a.z);
+            nite::Skeleton skeleton=user.getSkeleton();
+            nite::SkeletonJoint rightHandJoint =skeleton.getJoint(nite::JOINT_RIGHT_HAND);
+            nite::Point3f rightHand = rightHandJoint.getPosition();
+            nite::Point3f rightShoulder = skeleton.getJoint(nite::JOINT_RIGHT_SHOULDER).getPosition();
+            nite::Point3f rightElbow = skeleton.getJoint(nite::JOINT_RIGHT_ELBOW).getPosition();
+            nite::Point3f joinTorso = skeleton.getJoint(nite::JOINT_TORSO).getPosition();
             
+            
+//            printf("%.2f %.2f  CONFIDENCE : %f \n",rightElbow.y,rightShoulder.y,rightHandJoint.getOrientationConfidence());
+            
+            if(rightHandJoint.getPositionConfidence() > 0.6f){
+//                printf("CONFIDENT \n");
+                if(rightElbow.y > rightShoulder.y){
+//                    printf("ELBOW HIGHER THAN SHOULDER");
+                    float deltaY = rightHand.y - rightElbow.y;
+                    float deltaX = rightHand.x - rightElbow.x;
+                    
+                    float angleInDegrees = atan2(deltaY, deltaX) * 180 / M_PI;
+                
+                glRasterPos2i(240, 220);
+                glColor4f(0.0f, 0.0f, 1.0f, 1.0f);
+                char cVal2[32];
+                sprintf(cVal2,"%f",poseCheckout());
+                glPrintString(GLUT_BITMAP_HELVETICA_18, cVal2);
+               
+                    printf("%f \n",poseCheckout());
+                    if(poseCheckout() == 0){
+                        if(angleInDegrees > 40.0f && angleInDegrees < 60.0f){
+                            printf("HEREE \n");
+                            startTime =clock();
+                            savedPosition = rightHand;
+                        }
+                    }else if(rightHand.x < joinTorso.x && rightHand.y < joinTorso.y){
+                        glRasterPos2i(100, 220);
+                        glColor4f(0.0f, 0.0f, 1.0f, 1.0f);
+                       
+                        glPrintString(GLUT_BITMAP_HELVETICA_18,"MEDYO SLASH 1");
+                        startTime = 0;
+                    }
+                
+                    glRasterPos2i(100, 120);
+                    glColor4f(0.0f, 0.0f, 1.0f, 1.0f);
+                    char cVal[32];
+                    sprintf(cVal,"%f",angleInDegrees);
+
+                    glPrintString(GLUT_BITMAP_HELVETICA_18,cVal);
+
+                }
+            }
+
+   
+
+           
             
             
 			const nite::PoseData& pose = user.getPose(nite::POSE_CROSSED_HANDS);
